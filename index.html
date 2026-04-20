@@ -247,6 +247,14 @@
         <input id="start-odo" class="field-input" type="number" inputmode="decimal" placeholder="e.g. 47823">
       </div>
 
+      <!-- Supervisor (pre-drive) -->
+      <div id="supervisor-card" class="card">
+        <div class="card-title">Supervising Adult</div>
+        <div class="chips" id="supervisor-chips"></div>
+        <input id="supervisor-name" class="field-input" placeholder="Supervisor name" style="margin-top:12px" list="supervisor-suggestions" autocomplete="off">
+        <datalist id="supervisor-suggestions"></datalist>
+      </div>
+
       <!-- End odometer + notes (during drive) -->
       <div id="end-card" class="card" style="display:none">
         <label class="field-label">End Odometer (optional)</label>
@@ -327,6 +335,7 @@ const CONDITIONS = ['Daylight','Night','Rain','Highway','City','Adverse'];
 let state = load();
 let selectedDriver = 0;
 let selectedCondition = 'Daylight';
+let selectedSupervisorType = 'Parent';
 let timerInterval = null;
 let expandedId = null;
 let filterDriver = 'All';
@@ -389,6 +398,7 @@ function badgeColor(condition) {
 function render() {
   renderDriverTabs();
   renderConditionChips();
+  renderSupervisorChips();
   renderDriveUI();
   renderStats();
   renderLog();
@@ -414,12 +424,28 @@ function renderConditionChips() {
   ).join('');
 }
 
+function renderSupervisorChips() {
+  const el = document.getElementById('supervisor-chips');
+  if (!el) return;
+  const types = ['Parent','Instructor','Other'];
+  el.innerHTML = types.map(t =>
+    `<button class="chip${selectedSupervisorType === t ? ' active' : ''}" onclick="selectSupervisorType('${t}')">${t}</button>`
+  ).join('');
+  // Populate autocomplete from past sessions
+  const dl = document.getElementById('supervisor-suggestions');
+  if (dl) {
+    const names = [...new Set(state.sessions.map(s => s.supervisorName).filter(Boolean))];
+    dl.innerHTML = names.map(n => `<option value="${n}">`).join('');
+  }
+}
+
 function renderDriveUI() {
   const active = state.active;
   document.getElementById('active-card').style.display = active ? '' : 'none';
   document.getElementById('driver-card').style.display = active ? 'none' : '';
   document.getElementById('condition-card').style.display = active ? 'none' : '';
   document.getElementById('start-odo-card').style.display = active ? 'none' : '';
+  document.getElementById('supervisor-card').style.display = active ? 'none' : '';
   document.getElementById('end-card').style.display = active ? '' : 'none';
 
   const btn = document.getElementById('main-btn');
@@ -427,8 +453,9 @@ function renderDriveUI() {
     btn.textContent = '⏹  Stop Drive';
     btn.className = 'big-btn stop';
     const gpsStr = active.startGPS ? ` · 📍 GPS` : ' · No GPS';
+    const supStr = active.supervisorName ? ` · ${active.supervisorType}: ${active.supervisorName}` : '';
     document.getElementById('active-info').textContent =
-      `${active.driver} · ${active.condition} · Started ${formatTime(active.startTime)}${gpsStr}`;
+      `${active.driver} · ${active.condition} · Started ${formatTime(active.startTime)}${gpsStr}${supStr}`;
     startTimer();
   } else {
     btn.textContent = '▶  Start Drive';
@@ -498,6 +525,7 @@ function renderLog() {
       </div>
       <div class="session-meta" style="margin-top:8px">
         <span class="badge" style="background:${bc.split(';')[0]};${bc.split(';')[1]}">${s.condition}</span>
+        ${s.supervisorName ? `<span style="font-size:12px;color:#94A3B8">👤 ${s.supervisorType}: ${s.supervisorName}</span>` : ''}
       </div>
       ${isExpanded ? `<div class="session-detail">
         ${s.startOdometer ? `<div class="session-odo">Odometer: ${s.startOdometer} mi${s.endOdometer ? ` → ${s.endOdometer} mi` : ''}</div>` : ''}
@@ -556,6 +584,11 @@ function selectCondition(c) {
   renderConditionChips();
 }
 
+function selectSupervisorType(t) {
+  selectedSupervisorType = t;
+  renderSupervisorChips();
+}
+
 // ---- GPS ----
 
 function getPosition() {
@@ -601,15 +634,19 @@ async function startDrive() {
   const startOdo = parseFloat(document.getElementById('start-odo').value) || null;
   const gps = await getPosition();
 
+  const supervisorName = document.getElementById('supervisor-name').value.trim();
   const active = {
     driver: driverNames()[selectedDriver],
     startTime: Date.now(),
     startOdometer: startOdo,
     condition: selectedCondition,
     startGPS: gps,
+    supervisorType: selectedSupervisorType,
+    supervisorName: supervisorName,
   };
   persist({ ...state, active });
   document.getElementById('start-odo').value = '';
+  document.getElementById('supervisor-name').value = '';
   btn.disabled = false;
   renderDriveUI();
   renderHeader();
@@ -651,6 +688,8 @@ async function stopDrive() {
     notes: document.getElementById('notes').value.trim(),
     startGPS: state.active.startGPS,
     endGPS,
+    supervisorType: state.active.supervisorType,
+    supervisorName: state.active.supervisorName,
   };
   const newData = { ...state, active: null, sessions: [session, ...state.sessions] };
   persist(newData);
@@ -749,7 +788,7 @@ function exportJSON() {
 
 function exportCSV() {
   const rows = [
-    'Driver,Date,Start,End,Duration(min),Miles,MilesSource,Condition,Notes,StartLat,StartLng,EndLat,EndLng',
+    'Driver,Date,Start,End,Duration(min),Miles,MilesSource,Condition,SupervisorType,SupervisorName,Notes,StartLat,StartLng,EndLat,EndLng',
     ...state.sessions.map(s => [
       s.driver,
       formatDate(s.startTime),
@@ -759,6 +798,8 @@ function exportCSV() {
       s.miles || '',
       s.milesSource || '',
       s.condition,
+      s.supervisorType || '',
+      s.supervisorName || '',
       (s.notes || '').replace(/,/g, ';'),
       s.startGPS ? s.startGPS.lat : '',
       s.startGPS ? s.startGPS.lng : '',
@@ -805,4 +846,3 @@ render();
 </script>
 </body>
 </html>
-
